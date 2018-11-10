@@ -22,4 +22,9 @@ Downloads videos from NHK's Video On Demand Service.
 ### Disclaimer
 I didn't check, so I'm not sure if using this code is allowed by NHK's TOS. Use only if you've checked and you're sure downloading from their website is not disallowed.
 
-I don't guarantee that this code works. On the contrary - I can guarantee that you'll be able to break it with relative ease. This is not meant to be a robust and future-proof solution for downloading from NHK, it's just something I put together some boring Saturday afternoon.  
+I don't guarantee that this code works. On the contrary - I can guarantee that you'll be able to break it with relative ease. This is not meant to be a robust and future-proof solution for downloading from NHK, it's just something I put together some boring Saturday afternoon.
+
+### TODO:
+- goroutines
+- remove the video fragments afterwards
+- implements the command line arguments  
