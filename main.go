@@ -30,37 +30,68 @@ func main() {
 		log.Panicln(err)
 	}
 
-	err = downloadVideoFragments(tsLinks, key)
+	var fileLocations []string
+	err = downloadVideoFragments(&fileLocations, tsLinks, key)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	err = mergeVideoFragments(&fileLocations, key)
 	if err != nil {
 		log.Panicln(err)
 	}
 
 }
 
-func downloadVideoFragments(links []string, tmpFolder string) (error) {
-	for _, i := range links[0:2] {
+func mergeVideoFragments(fileLocations *[]string, key string) error {
+	finalFile, err := os.OpenFile(".\\"+key+".ts", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer finalFile.Close()
+
+	for _, i := range *fileLocations {
+
+		smallFileContents, err := ioutil.ReadFile(i)
+		if err != nil {
+			return err
+		}
+
+		_, err = finalFile.Write(smallFileContents)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func downloadVideoFragments(fileLocations *[]string, links []string, tmpFolder string) error {
+	for _, i := range links {
 		res, err := http.Get(i)
 		if err != nil {
 			return err
 		}
-		defer res.Body.Close()
 
 		splitURL := strings.Split(i, "/")
 		fileName := splitURL[len(splitURL)-1]
 
-		os.Mkdir(".\\" + tmpFolder, 0755)
-		file, err := os.Create(tmpFolder + "\\" + fileName)
+		os.Mkdir(".\\"+tmpFolder, 0755)
+		fullFileLocation := ".\\" + tmpFolder + "\\" + fileName
+		file, err := os.Create(fullFileLocation)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
 
 		_, err = io.Copy(file, res.Body)
 		if err != nil {
 			return err
 		}
 
-		return nil
+		*fileLocations = append(*fileLocations, fullFileLocation)
+
+		file.Close()
+		res.Body.Close()
 	}
 
 	return nil
