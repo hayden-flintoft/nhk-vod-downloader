@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/chromedp/chromedp/runner"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -14,15 +17,24 @@ import (
 )
 
 func main() {
-	// This will tell use the total execution time after we finish.
-	defer timer(time.Now())
+	//Process the command line arguments
+	var nhkLink string
+	var customPath string
+	var useCustomPath bool
+	var convertOption bool
+	var dontMergeOption bool
+	var chromeHeadlessOption bool
+	ready := processArgs(os.Args, &nhkLink, &customPath, &useCustomPath, &convertOption, &dontMergeOption, &chromeHeadlessOption)
+	if !ready {
+		return
+	}
 
-	// This is a fixed link for testing purposes. Remove this when you can, please.
-	const nhkLink = "https://www3.nhk.or.jp/nhkworld/en/vod/directtalk/2058304/"
+	// This will tell us the total execution time after we finish.
+	defer timer(time.Now())
 
 	// First, we need to get the video ID from NHK's website.
 	log.Println("Obtaining the video ID...")
-	key, err := getKey(nhkLink)
+	key, err := getKey(nhkLink, chromeHeadlessOption)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -42,11 +54,16 @@ func main() {
 	}
 
 	// Here, we download all TS fragment files.
-	log.Println("Downloading all video fragments...")
+	log.Printf("Downloading %s video fragments...\n", len(tsLinks))
 	var fileLocations []string
 	err = downloadVideoFragments(&fileLocations, tsLinks, key)
 	if err != nil {
 		log.Panicln(err)
+	}
+
+	if dontMergeOption {
+		log.Println("Success!")
+		return
 	}
 
 	// After downloading everything, all we need to do it merge all small files.
@@ -55,6 +72,21 @@ func main() {
 	if err != nil {
 		log.Panicln(err)
 	}
+
+	// Remove the TS files.
+	log.Println("Removing the temporary files...")
+	err = cleanup(key)
+	if err != nil {
+		log.Panicln(err)
+	}
+
+	log.Println("Success!")
+}
+
+// Video fragments are not useful to us anymore, therefore it is wise to remove them.
+func cleanup(key string) error {
+	err := os.RemoveAll(".\\" + key)
+	return err
 }
 
 // We use this function to merge all TS files into a big one.
@@ -184,24 +216,30 @@ func getRightPlaylist(key string) (string, error) {
 // It's also a bit broken. If you use the headless mode, you can't shut it down properly, or at least I wasn't able to
 // figure it out since there is just about zero useful documentation about it on Google. If you're reading this and
 // know how to help, do contact me - I've been dying to know this for quite some time now.
-func getKey(nhkLink string) (string, error) {
+func getKey(nhkLink string, headless bool) (string, error) {
 
 	// First, we define a Context. I'm note 100% sure what this is, but it seemed interesting enough
 	// on the documentation page and chromedp needs it to work.
 	ctxt, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start a new chromedp instance.
-	c, err := chromedp.New(
-		ctxt,
-		chromedp.WithLog(func(string, ...interface{}) {}),
-		// We've got some commented headless flags here. Uncomment them if you have a death wish.
-		// (Just kidding. Don't uncomment them under any circumstances. Do contact somebody if you have a death wish though.)
-		chromedp.WithRunnerOptions(
-			//runner.Flag("headless", true),
-			//runner.Flag("disable-gpu", true),
-		),
-	)
+	var c *chromedp.CDP
+	var err error
+	if !headless {
+		// Start a new chromedp instance.
+		c, err = chromedp.New(
+			ctxt,
+			chromedp.WithLog(func(string, ...interface{}) {}),
+			// We've got some commented headless flags here. Uncomment them if you have a death wish.
+			// (Just kidding. Don't uncomment them under any circumstances. Do contact somebody if you have a death wish though.)
+			chromedp.WithRunnerOptions(
+				//runner.Flag("headless", true),
+				//runner.Flag("disable-gpu", true),
+			),
+		)
+	} else {
+		c, err = chromedp.New(ctxt, chromedp.WithLog(func(string, ...interface{}) {}), chromedp.WithRunnerOptions(runner.Flag("headless", true), runner.Flag("disable-gpu", true)))
+	}
 	if err != nil {
 		return "", err
 	}
@@ -214,6 +252,10 @@ func getKey(nhkLink string) (string, error) {
 	err = c.Shutdown(ctxt)
 	if err != nil {
 		return "", err
+	}
+
+	if headless {
+		return key, nil
 	}
 
 	// Wait for Uncle Chrome to go.
@@ -247,4 +289,74 @@ func chromeTasks(nhkLink string, attributes *string) chromedp.Tasks {
 func timer(s time.Time) {
 	elapsed := time.Since(s)
 	log.Printf("Execution time: %s", elapsed)
+}
+
+// Loop through all command line arguments and make sure everything will work correctly.
+func processArgs(args []string, link, customPath *string, useCPath, convert, dontMerge, chromeHeadless *bool) bool {
+	nextOneIsUrl := false
+	nextOneIsPath := false
+	receivedURLSuccessfully := false
+
+	helpText := fmt.Sprintf(`
+Options:
+   %-9sSpecify the NHK VOD URL.
+   %-9sSpecify a custom path, if you want to save somewhere else.
+   %-9sConvert output file to mkv.
+   %-9sDon\'t merge the video fragments.
+   %-9sStart Chrome in headless mode.
+   %-9sShows this message.
+`, "-u url", "-p path", "-c", "-dm", "-h", "-?")
+	if len(args[1:]) == 0 {
+		fmt.Println(helpText)
+		return false
+	}
+
+	for _, i := range args {
+		if i == "-?" {
+			fmt.Println(helpText)
+			return false
+		}
+
+		if nextOneIsUrl {
+			_, err := url.ParseRequestURI(i)
+			if err != nil {
+				log.Fatalln("Url appears to be invalid.")
+				return false
+			}
+
+			*link = i
+			nextOneIsUrl = false
+			continue
+		}
+
+		if nextOneIsPath {
+			*customPath = i
+			nextOneIsPath = false
+			continue
+		}
+		switch i {
+		case "-u":
+			nextOneIsUrl = true
+			receivedURLSuccessfully = true
+		case "-p":
+			*useCPath = true
+			nextOneIsPath = true
+		case "-c":
+			*convert = true
+		case "-dm":
+			*dontMerge = true
+		case "-h":
+			*chromeHeadless = true
+		}
+	}
+
+	if nextOneIsUrl || !receivedURLSuccessfully {
+		log.Fatalln("No url was specified.")
+		return false
+	} else if nextOneIsPath {
+		log.Fatalln("No path was specified.")
+		return false
+	}
+
+	return true
 }
