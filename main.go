@@ -54,7 +54,7 @@ func main() {
 	}
 
 	// Here, we download all TS fragment files.
-	log.Printf("Downloading %s video fragments...\n", len(tsLinks))
+	log.Printf("Downloading %d video fragments...\n", len(tsLinks))
 	var fileLocations []string
 	err = downloadVideoFragments(&fileLocations, tsLinks, key)
 	if err != nil {

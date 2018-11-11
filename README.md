@@ -2,6 +2,8 @@
 
 Downloads videos from NHK's Video On Demand Service.
 
+Download a built version for Windows: [Releases](../../releases)
+
 ### Requirements
 - Google Chrome (this code uses `chromedp` to obtain the "hidden" video ID due to NHK's fancy schmancy Javascript shenanigans. I didn't want to bother reading their 15k+ lines of JS code just to be able to reproduce the request to get the ID.)
 - FFmpeg (only if you want to convert your video to mkv afterwards) - not yet implemented
@@ -27,5 +29,5 @@ I don't guarantee that this code works. On the contrary - I can guarantee that y
 
 ### TODO:
 - goroutines
-- remove the video fragments afterwards
-- implements the command line arguments  
+- implement the rest of the command line arguments
+- ensure this downloader can run normally on Linux (path formatting and stuff)
