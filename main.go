@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/chromedp/chromedp/runner"
 	"io"
 	"io/ioutil"
 	"log"
@@ -217,49 +216,29 @@ func getRightPlaylist(key string) (string, error) {
 // figure it out since there is just about zero useful documentation about it on Google. If you're reading this and
 // know how to help, do contact me - I've been dying to know this for quite some time now.
 func getKey(nhkLink string, headless bool) (string, error) {
-
-	// First, we define a Context. I'm note 100% sure what this is, but it seemed interesting enough
-	// on the documentation page and chromedp needs it to work.
-	ctxt, cancel := context.WithCancel(context.Background())
+	// Create an allocator context for controlling the lifecycle of the browser process.
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", headless),
+		chromedp.Flag("disable-gpu", headless),
+	)
+	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer cancel()
 
-	var c *chromedp.CDP
-	var err error
-	if !headless {
-		// Start a new chromedp instance.
-		c, err = chromedp.New(
-			ctxt,
-			chromedp.WithLog(func(string, ...interface{}) {}),
-			// We've got some commented headless flags here. Uncomment them if you have a death wish.
-			// (Just kidding. Don't uncomment them under any circumstances. Do contact somebody if you have a death wish though.)
-			chromedp.WithRunnerOptions(
-				//runner.Flag("headless", true),
-				//runner.Flag("disable-gpu", true),
-			),
-		)
-	} else {
-		c, err = chromedp.New(ctxt, chromedp.WithLog(func(string, ...interface{}) {}), chromedp.WithRunnerOptions(runner.Flag("headless", true), runner.Flag("disable-gpu", true)))
-	}
-	if err != nil {
-		return "", err
-	}
+	// Create a new browser context.
+	ctx, cancel := chromedp.NewContext(allocCtx)
+	defer cancel()
 
-	// Define a key variable - we will store the video ID here. Then, run the Chrome tasks.
 	var key string
-	err = c.Run(ctxt, chromeTasks(nhkLink, &key))
+	var ok bool
 
-	// When we're all done, let Uncle Chrome know it's time to go.
-	err = c.Shutdown(ctxt)
-	if err != nil {
-		return "", err
+	tasks := chromedp.Tasks{
+		chromedp.Navigate(nhkLink),
+		chromedp.WaitVisible(`#movie-area-detail`, chromedp.ByID),
+		chromedp.AttributeValue("#movie-area-detail", "data-id", &key, &ok, chromedp.ByID),
 	}
 
-	if headless {
-		return key, nil
-	}
-
-	// Wait for Uncle Chrome to go.
-	err = c.Wait()
+	// Run the tasks in the browser context.
+	err := chromedp.Run(ctx, tasks)
 	if err != nil {
 		return "", err
 	}
@@ -268,22 +247,22 @@ func getKey(nhkLink string, headless bool) (string, error) {
 }
 
 // These are the tasks we use to obtain the video ID from NHK.
-func chromeTasks(nhkLink string, attributes *string) chromedp.Tasks {
-	var ok bool
-	return chromedp.Tasks{
-		// Go to the actual video webpage.
-		chromedp.Navigate(nhkLink),
+// func chromeTasks(nhkLink string, attributes *string) chromedp.Tasks {
+// 	var ok bool
+// 	return chromedp.Tasks{
+// 		// Go to the actual video webpage.
+// 		chromedp.Navigate(nhkLink),
 
-		// Wait until NHK decides to load the video. This may actually take a few seconds.
-		// If it takes more than a few seconds, refresh the page in the Chrome window and wait some more. It may help.
-		chromedp.WaitVisible(`#movie-area-detail`, chromedp.ByID, ),
+// 		// Wait until NHK decides to load the video. This may actually take a few seconds.
+// 		// If it takes more than a few seconds, refresh the page in the Chrome window and wait some more. It may help.
+// 		chromedp.WaitVisible(`#movie-area-detail`, chromedp.ByID),
 
-		// When the video loads, get the ID from the video div.
-		chromedp.AttributeValue("#movie-area-detail", "data-id", attributes, &ok, chromedp.ByID),
+// 		// When the video loads, get the ID from the video div.
+// 		chromedp.AttributeValue("#movie-area-detail", "data-id", attributes, &ok, chromedp.ByID),
 
-		chromedp.Stop(),
-	}
-}
+// 		chromedp.Stop(),
+// 	}
+// }
 
 // Time measuring stuff.
 func timer(s time.Time) {
